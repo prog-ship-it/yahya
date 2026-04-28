@@ -1,0 +1,8 @@
+{
+  "name": " Tactical: Strike Force",
+  "description": "A high-fidelity first-person shooter experience featuring dynamic mission generation powered by Gemini, featuring immersive 3D graphics, fluid movement, and intense tactical combat.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
