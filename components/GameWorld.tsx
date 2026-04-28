@@ -272,9 +272,17 @@ const EnemyNPC: React.FC<{
   obstaclePositions: [number, number, number][];
 }> = ({ enemy, onHit, onPlayerHurt, updateEnemyPosition, obstaclePositions }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const leftArmRef = useRef<THREE.Mesh>(null);
+  const rightArmRef = useRef<THREE.Mesh>(null);
+  const leftLegRef = useRef<THREE.Mesh>(null);
+  const rightLegRef = useRef<THREE.Mesh>(null);
+  const weaponRef = useRef<THREE.Group>(null);
+  const bodyRef = useRef<THREE.Group>(null);
+
   const { camera } = useThree();
   const lastFireTime = useRef(0);
   const lastStateChangeTime = useRef(0);
+  const animTime = useRef(0);
 
   useFrame((state, delta) => {
     if (!groupRef.current || !enemy.isAlive) return;
@@ -303,7 +311,7 @@ const EnemyNPC: React.FC<{
           nextTarget = [...closestCover] as [number, number, number];
         } else if (rand < 0.8) {
           // Flanking maneuver
-          const angle = (Math.random() - 0.5) * Math.PI; // +/- 90 degrees from player vector
+          const angle = (Math.random() - 0.5) * Math.PI; 
           const flankDir = new THREE.Vector3().subVectors(enemyPos, playerPos).normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
           const flankPos = new THREE.Vector3().copy(enemyPos).add(flankDir.multiplyScalar(15));
           nextState = AIState.FLANKING;
@@ -318,9 +326,10 @@ const EnemyNPC: React.FC<{
       updateEnemyPosition(enemy.id, enemy.position, nextState, nextTarget);
     }
 
-    // Movement execution
-    if (enemy.targetPosition && (enemy.aiState === AIState.FLANKING || enemy.aiState === AIState.MOVING_TO_COVER)) {
-      const target = new THREE.Vector3(...enemy.targetPosition);
+    // Movement execution & Animation
+    const isMoving = enemy.targetPosition && (enemy.aiState === AIState.FLANKING || enemy.aiState === AIState.MOVING_TO_COVER);
+    if (isMoving) {
+      const target = new THREE.Vector3(...enemy.targetPosition!);
       const moveDir = new THREE.Vector3().subVectors(target, enemyPos).normalize();
       const speed = enemy.type === 'tank' ? 2 : 5;
       
@@ -331,17 +340,39 @@ const EnemyNPC: React.FC<{
           enemy.position[2] + moveDir.z * speed * delta
         ];
         updateEnemyPosition(enemy.id, newPos, enemy.aiState, enemy.targetPosition);
+        
+        // Advance animation
+        animTime.current += delta * speed * 2;
       } else if (enemy.aiState === AIState.MOVING_TO_COVER) {
         updateEnemyPosition(enemy.id, enemy.position, AIState.IN_COVER, undefined);
       } else {
         updateEnemyPosition(enemy.id, enemy.position, AIState.ENGAGED, undefined);
       }
+    } else {
+      // Idle breathing
+      animTime.current = THREE.MathUtils.lerp(animTime.current, 0, 0.05);
     }
+
+    // Apply Animations
+    const walkPhase = animTime.current;
+    if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(walkPhase) * 0.5;
+    if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.5;
+    if (leftArmRef.current) leftArmRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.4;
+    if (rightArmRef.current) rightArmRef.current.rotation.x = Math.sin(walkPhase) * 0.4;
+    if (bodyRef.current) bodyRef.current.position.y = Math.abs(Math.sin(walkPhase * 2)) * 0.1;
 
     // Aim and Fire
     groupRef.current.lookAt(playerPos.x, enemy.position[1] + 1.2, playerPos.z);
     
-    // Fire frequency depends on state (suppressing fire vs careful shots)
+    // Weapon shake when in moving states
+    if (weaponRef.current && isMoving) {
+        weaponRef.current.position.y = 1.1 + Math.sin(walkPhase * 2) * 0.05;
+        weaponRef.current.rotation.z = Math.sin(walkPhase) * 0.05;
+    } else if (weaponRef.current) {
+        weaponRef.current.position.y = 1.1;
+        weaponRef.current.rotation.z = 0;
+    }
+
     const fireInterval = enemy.aiState === AIState.IN_COVER ? 1.5 : 3.0;
     if (distToPlayer < 50 && t - lastFireTime.current > (fireInterval + Math.random() * 2)) {
       lastFireTime.current = t;
@@ -357,7 +388,7 @@ const EnemyNPC: React.FC<{
 
   return (
     <group ref={groupRef} position={enemy.position} scale={[scale, scale, scale]}>
-      <group onClick={(e) => { e.stopPropagation(); onHit(enemy.id, e.point); }}>
+      <group ref={bodyRef} onClick={(e) => { e.stopPropagation(); onHit(enemy.id, e.point); }}>
         {/* Torso with glowing core */}
         <mesh position={[0, 1.2, 0]}>
           <boxGeometry args={[0.7, 0.9, 0.4]} />
@@ -391,22 +422,46 @@ const EnemyNPC: React.FC<{
         </mesh>
 
         {/* Arms */}
-        <mesh position={[-0.45, 1.2, 0]}><boxGeometry args={[0.22, 0.7, 0.22]} /><meshStandardMaterial color={armorColor} /></mesh>
-        <mesh position={[0.45, 1.2, 0]}><boxGeometry args={[0.22, 0.7, 0.22]} /><meshStandardMaterial color={armorColor} /></mesh>
+        <mesh ref={leftArmRef} position={[-0.45, 1.2, 0]}>
+          <boxGeometry args={[0.22, 0.7, 0.22]} />
+          <meshStandardMaterial color={armorColor} />
+        </mesh>
+        <mesh ref={rightArmRef} position={[0.45, 1.2, 0]}>
+          <boxGeometry args={[0.22, 0.7, 0.22]} />
+          <meshStandardMaterial color={armorColor} />
+        </mesh>
         
         {/* Legs / Lower Chassis */}
-        <mesh position={[-0.25, 0.4, 0]}><cylinderGeometry args={[0.1, 0.1, 0.8]} /><meshStandardMaterial color="#050505" /></mesh>
-        <mesh position={[0.25, 0.4, 0]}><cylinderGeometry args={[0.1, 0.1, 0.8]} /><meshStandardMaterial color="#050505" /></mesh>
+        <mesh ref={leftLegRef} position={[-0.25, 0.4, 0]}>
+          <cylinderGeometry args={[0.1, 0.1, 0.8]} />
+          <meshStandardMaterial color="#050505" />
+        </mesh>
+        <mesh ref={rightLegRef} position={[0.25, 0.4, 0]}>
+          <cylinderGeometry args={[0.1, 0.1, 0.8]} />
+          <meshStandardMaterial color="#050505" />
+        </mesh>
 
         {/* Futuristic Weapon */}
-        <group position={[0.5, 1.1, 0.4]} rotation={[Math.PI / 2, 0, 0]}>
+        <group ref={weaponRef} position={[0.5, 1.1, 0.4]} rotation={[Math.PI / 2, 0, 0]}>
+          {/* Main Body */}
           <mesh>
-            <cylinderGeometry args={[0.07, 0.08, 0.9]} />
+            <boxGeometry args={[0.15, 0.8, 0.15]} />
             <meshStandardMaterial color="#111" metalness={0.8} />
           </mesh>
-          <mesh position={[0, 0.3, 0]}>
-            <boxGeometry args={[0.1, 0.1, 0.2]} />
-            <meshStandardMaterial color={detailColor} emissive={detailColor} emissiveIntensity={2} />
+          {/* Barrel */}
+          <mesh position={[0, 0.5, 0]}>
+            <cylinderGeometry args={[0.04, 0.04, 0.4]} />
+            <meshStandardMaterial color="#222" />
+          </mesh>
+          {/* Glowing Accents */}
+          <mesh position={[0, 0.2, 0.08]}>
+            <boxGeometry args={[0.16, 0.3, 0.02]} />
+            <meshStandardMaterial color={detailColor} emissive={detailColor} emissiveIntensity={4} />
+          </mesh>
+          {/* Stock */}
+          <mesh position={[0, -0.45, 0.1]}>
+            <boxGeometry args={[0.1, 0.2, 0.3]} />
+            <meshStandardMaterial color="#0a0a0a" />
           </mesh>
         </group>
       </group>
