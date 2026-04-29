@@ -2,7 +2,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Mission, MapTheme } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let genAI: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!genAI) {
+    const apiKey = process.env.GEMINI_API_KEY || (process.env as any).API_KEY;
+    if (!apiKey || apiKey === "undefined" || apiKey === "null") {
+      console.warn("GEMINI_API_KEY is not defined. Using fallback values.");
+      return null;
+    }
+    genAI = new GoogleGenAI({ apiKey });
+  }
+  return genAI;
+}
 
 const GENERATED_OBSTACLES_COUNT = 12;
 
@@ -20,8 +32,24 @@ const generateRandomObstacles = (): [number, number, number][] => {
   return obstacles;
 };
 
+const DEFAULT_MISSION = (forcedTheme?: MapTheme): Mission => ({
+  title: "Operation: Dark Sky",
+  objective: "Neutralize all hostiles in the urban sector.",
+  location: "Neo-Tokyo Industrial Zone",
+  difficulty: "Medium",
+  threatLevel: 75,
+  mapTheme: forcedTheme || MapTheme.CYBER,
+  obstaclePositions: [
+    [-20, 0, -20], [20, 0, -20], [-20, 0, 20], [20, 0, 20],
+    [-10, 0, 0], [10, 0, 0], [0, 0, -15], [0, 0, 15]
+  ]
+});
+
 export const generateMission = async (forcedTheme?: MapTheme): Promise<Mission> => {
   try {
+    const ai = getAI();
+    if (!ai) return DEFAULT_MISSION(forcedTheme);
+
     const prompt = forcedTheme 
       ? `Generate a realistic military FPS mission briefing in a near-future setting for a ${forcedTheme} environment.`
       : "Generate a realistic military FPS mission briefing in a near-future setting. Choose a distinct map theme.";
@@ -60,17 +88,6 @@ export const generateMission = async (forcedTheme?: MapTheme): Promise<Mission> 
     } as Mission;
   } catch (error) {
     console.error("Failed to generate mission:", error);
-    return {
-      title: "Operation: Dark Sky",
-      objective: "Neutralize all hostiles in the urban sector.",
-      location: "Neo-Tokyo Industrial Zone",
-      difficulty: "Medium",
-      threatLevel: 75,
-      mapTheme: forcedTheme || MapTheme.CYBER,
-      obstaclePositions: [
-        [-20, 0, -20], [20, 0, -20], [-20, 0, 20], [20, 0, 20],
-        [-10, 0, 0], [10, 0, 0], [0, 0, -15], [0, 0, 15]
-      ]
-    };
+    return DEFAULT_MISSION(forcedTheme);
   }
 };

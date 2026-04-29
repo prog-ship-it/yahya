@@ -177,6 +177,10 @@ const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => vo
   const tiltRef = useRef(0);
 
   const checkCollision = (newPos: THREE.Vector3) => {
+    // Boundary checks (Walls are at +/- 100)
+    const LIMIT = 98.5;
+    if (Math.abs(newPos.x) > LIMIT || Math.abs(newPos.z) > LIMIT) return true;
+
     if (!mission) return false;
     
     // Check dynamic obstacles
@@ -333,13 +337,35 @@ const EnemyNPC: React.FC<{
       const moveDir = new THREE.Vector3().subVectors(target, enemyPos).normalize();
       const speed = enemy.type === 'tank' ? 2 : 5;
       
-      if (enemyPos.distanceTo(target) > 1) {
-        const newPos: [number, number, number] = [
-          enemy.position[0] + moveDir.x * speed * delta,
-          0,
-          enemy.position[2] + moveDir.z * speed * delta
-        ];
-        updateEnemyPosition(enemy.id, newPos, enemy.aiState, enemy.targetPosition);
+      const distToTarget = enemyPos.distanceTo(target);
+      if (distToTarget > 1) {
+        const nextX = enemy.position[0] + moveDir.x * speed * delta;
+        const nextZ = enemy.position[2] + moveDir.z * speed * delta;
+        
+        // Basic collision for enemies
+        const LIMIT = 98.5;
+        let canMove = Math.abs(nextX) < LIMIT && Math.abs(nextZ) < LIMIT;
+        
+        if (canMove) {
+          for (let i = 0; i < obstaclePositions.length; i++) {
+            const [ox, , oz] = obstaclePositions[i];
+            const isBig = i % 3 === 0;
+            const hw = (isBig ? 5 : 8) / 2 + 0.6;
+            const hd = (isBig ? 5 : 2) / 2 + 0.6;
+            if (nextX > ox - hw && nextX < ox + hw && nextZ > oz - hd && nextZ < oz + hd) {
+              canMove = false;
+              break;
+            }
+          }
+        }
+
+        if (canMove) {
+          const newPos: [number, number, number] = [nextX, 0, nextZ];
+          updateEnemyPosition(enemy.id, newPos, enemy.aiState, enemy.targetPosition);
+        } else {
+          // If stuck, engage player or find new target
+          updateEnemyPosition(enemy.id, enemy.position, AIState.ENGAGED, undefined);
+        }
         
         // Advance animation
         animTime.current += delta * speed * 2;
@@ -355,22 +381,53 @@ const EnemyNPC: React.FC<{
 
     // Apply Animations
     const walkPhase = animTime.current;
-    if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(walkPhase) * 0.5;
-    if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.5;
-    if (leftArmRef.current) leftArmRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.4;
-    if (rightArmRef.current) rightArmRef.current.rotation.x = Math.sin(walkPhase) * 0.4;
-    if (bodyRef.current) bodyRef.current.position.y = Math.abs(Math.sin(walkPhase * 2)) * 0.1;
+    const isEngaged = enemy.aiState === AIState.ENGAGED || enemy.aiState === AIState.FLANKING;
+    
+    // Legs animation
+    if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(walkPhase) * 0.7;
+    if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.7;
+    
+    // Arms animation
+    if (isEngaged && weaponRef.current) {
+        // Aiming pose
+        if (rightArmRef.current) {
+            rightArmRef.current.rotation.x = -Math.PI / 2;
+            rightArmRef.current.rotation.z = -0.2;
+        }
+        if (leftArmRef.current) {
+            leftArmRef.current.rotation.x = -Math.PI / 2.5;
+            leftArmRef.current.rotation.z = 0.5;
+        }
+        // Weapon positioning in engaged state
+        weaponRef.current.position.set(0.3, 1.3, 0.6);
+        weaponRef.current.rotation.set(Math.PI / 2, 0, 0);
+    } else {
+        // Relaxed or running pose
+        if (leftArmRef.current) leftArmRef.current.rotation.x = Math.sin(walkPhase + Math.PI) * 0.6;
+        if (rightArmRef.current) rightArmRef.current.rotation.x = Math.sin(walkPhase) * 0.6;
+        
+        if (weaponRef.current) {
+            weaponRef.current.position.set(0.5, 1.1, 0.4);
+            weaponRef.current.rotation.set(Math.PI / 2, 0, 0);
+        }
+    }
+
+    if (bodyRef.current) {
+        bodyRef.current.position.y = Math.abs(Math.sin(walkPhase * 2)) * 0.15;
+        bodyRef.current.rotation.y = Math.sin(walkPhase) * 0.05;
+        
+        // Lean forward when moving
+        const targetLean = isMoving ? 0.25 : 0;
+        bodyRef.current.rotation.x = THREE.MathUtils.lerp(bodyRef.current.rotation.x, targetLean, 0.1);
+    }
 
     // Aim and Fire
     groupRef.current.lookAt(playerPos.x, enemy.position[1] + 1.2, playerPos.z);
     
-    // Weapon shake when in moving states
+    // Weapon shake when moving
     if (weaponRef.current && isMoving) {
-        weaponRef.current.position.y = 1.1 + Math.sin(walkPhase * 2) * 0.05;
-        weaponRef.current.rotation.z = Math.sin(walkPhase) * 0.05;
-    } else if (weaponRef.current) {
-        weaponRef.current.position.y = 1.1;
-        weaponRef.current.rotation.z = 0;
+        weaponRef.current.position.y += Math.sin(walkPhase * 2) * 0.05;
+        weaponRef.current.rotation.z += Math.sin(walkPhase) * 0.05;
     }
 
     const fireInterval = enemy.aiState === AIState.IN_COVER ? 1.5 : 3.0;
@@ -494,7 +551,11 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
         });
     }
     setEnemies(list);
-  }, [mission]); // Re-spawn enemies if mission changes
+    
+    // Reset camera position for new mission to center safe zone
+    camera.position.set(0, 1.8, 10);
+    camera.rotation.set(0, 0, 0);
+  }, [mission, camera]); // Re-spawn enemies and reset player if mission changes
 
   const updateEnemyPosition = useCallback((id: string, pos: [number, number, number], state: AIState, target?: [number, number, number]) => {
     setEnemies(prev => prev.map(e => e.id === id ? { ...e, position: pos, aiState: state, targetPosition: target } : e));
