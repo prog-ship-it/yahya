@@ -7,9 +7,11 @@ interface HUDProps {
   stats: PlayerStats;
   mission: Mission | null;
   totalEnemies: number;
+  roomId?: string;
+  playerName?: string;
 }
 
-const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies }) => {
+const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerName }) => {
   const healthColor = stats.health > 50 ? 'bg-emerald-500' : stats.health > 20 ? 'bg-amber-500' : 'bg-red-600';
   const enemiesRemaining = totalEnemies - stats.kills;
   const isExtractionReady = enemiesRemaining <= 0;
@@ -41,6 +43,13 @@ const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies }) => {
             <h2 className="text-xs uppercase tracking-widest text-white/50 mb-1">Eliminations</h2>
             <div className="text-2xl font-bold text-white tracking-tighter">{stats.kills}</div>
           </div>
+          {roomId && (
+            <div className="bg-cyan-500/10 backdrop-blur-md border border-cyan-500/30 p-4 rounded text-right min-w-[120px]">
+              <h2 className="text-xs uppercase tracking-widest text-cyan-400/70 mb-1">Squad Link</h2>
+              <div className="text-2xl font-bold text-cyan-400 tracking-tighter">#{roomId}</div>
+              <div className="text-[10px] text-cyan-400/50 mt-1 uppercase">{playerName}</div>
+            </div>
+          )}
         </div>
       </div>
 

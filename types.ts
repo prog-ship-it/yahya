@@ -102,3 +102,20 @@ export interface Enemy {
   aiState?: AIState;
   targetPosition?: [number, number, number];
 }
+
+export interface MultiplayerPlayer {
+  id: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  health: number;
+  currentWeapon: WeaponType;
+  isFiring: boolean;
+  name: string;
+}
+
+export interface MultiplayerRoom {
+  id: string;
+  players: Record<string, MultiplayerPlayer>;
+  mission: Mission | null;
+  enemies: Enemy[];
+}

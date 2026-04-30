@@ -3,9 +3,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, PlayerStats, Mission, WeaponType, WEAPONS, MapTheme } from './types';
 import { generateMission } from './services/geminiService';
 import { soundService } from './services/soundService';
+import { multiplayerService } from './services/multiplayerService';
 import HUD from './components/HUD';
 import GameWorld from './components/GameWorld';
-import { Terminal, Shield, Play, RotateCcw, Award, AlertTriangle, Target, Trophy, Map as MapIcon, ChevronRight } from 'lucide-react';
+import { Terminal, Shield, Play, RotateCcw, Award, AlertTriangle, Target, Trophy, Map as MapIcon, ChevronRight, Users, Hash } from 'lucide-react';
 
 const TOTAL_ENEMIES_COUNT = 18;
 
@@ -20,6 +21,10 @@ const THEME_LABELS: Record<MapTheme, { label: string, desc: string, color: strin
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [showThemeSelect, setShowThemeSelect] = useState(false);
+  const [showMultiplayerLobby, setShowMultiplayerLobby] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [playerName, setPlayerName] = useState('');
+  const [isMultiplayer, setIsMultiplayer] = useState(false);
   const [mission, setMission] = useState<Mission | null>(null);
   const [stats, setStats] = useState<PlayerStats>({
     health: 100,
@@ -33,8 +38,33 @@ const App: React.FC = () => {
   const startNewGame = async (selectedTheme?: MapTheme) => {
     setGameState(GameState.LOADING);
     setShowThemeSelect(false);
-    const newMission = await generateMission(selectedTheme);
-    setMission(newMission);
+    setShowMultiplayerLobby(false);
+    
+    if (isMultiplayer) {
+      multiplayerService.connect();
+      multiplayerService.joinRoom(roomId || 'GLOBAL', playerName || 'Agent');
+      
+      // Wait for room state
+      multiplayerService.onRoomState(async (state) => {
+        if (state.mission) {
+          setMission(state.mission);
+        } else {
+          const newMission = await generateMission(selectedTheme);
+          setMission(newMission);
+          // Sync with others (server will spawn enemies if I'm the first, otherwise it should handle it)
+          // For simplicity, let's just let the joiner use their own generated mission if none exists
+          multiplayerService.syncMission(newMission, []);
+        }
+        setGameState(GameState.MISSION_BRIEF);
+        soundService.playMissionStart();
+      });
+    } else {
+      const newMission = await generateMission(selectedTheme);
+      setMission(newMission);
+      setGameState(GameState.MISSION_BRIEF);
+      soundService.playMissionStart();
+    }
+
     setStats({
       health: 100,
       ammo: WEAPONS[WeaponType.PISTOL].ammoCapacity,
@@ -43,8 +73,6 @@ const App: React.FC = () => {
       kills: 0,
       currentWeapon: WeaponType.PISTOL
     });
-    setGameState(GameState.MISSION_BRIEF);
-    soundService.playMissionStart();
   };
 
   const switchWeapon = useCallback((type: WeaponType) => {
@@ -115,7 +143,7 @@ const App: React.FC = () => {
     <div className="w-full h-screen bg-neutral-950 text-white overflow-hidden select-none">
       {gameState === GameState.MENU && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black p-6">
-          {!showThemeSelect ? (
+          {!showThemeSelect && !showMultiplayerLobby ? (
             <div className="flex flex-col items-center animate-in fade-in duration-700">
               <div className="mb-8 flex flex-col items-center">
                 <div className="flex items-center gap-3 text-cyan-400 mb-2">
@@ -127,17 +155,91 @@ const App: React.FC = () => {
                 </h1>
               </div>
               <div className="max-w-md w-full space-y-4">
+                <div className="space-y-2 mb-6 group">
+                  <label className="text-[10px] uppercase tracking-[0.3em] text-white/30 group-focus-within:text-cyan-400 transition-colors block text-center">Neural Signature (Callsign)</label>
+                  <input 
+                    type="text" 
+                    placeholder="ENTER CODENAME..."
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value.toUpperCase())}
+                    maxLength={12}
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 font-mono text-center text-cyan-400 focus:border-cyan-500 focus:bg-cyan-500/5 outline-none transition-all tracking-[0.2em] uppercase"
+                  />
+                </div>
+
                 <button 
-                  onClick={() => setShowThemeSelect(true)}
-                  className="w-full bg-cyan-600 hover:bg-cyan-500 text-black font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95"
+                  onClick={() => {
+                    setIsMultiplayer(false);
+                    setShowThemeSelect(true);
+                  }}
+                  disabled={!playerName.trim()}
+                  className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 disabled:grayscale text-black font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
                 >
                   <Play className="w-5 h-5 fill-current" />
-                  INITIATE NEURAL LINK
+                  SOLO OPERATION
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsMultiplayer(true);
+                    setShowMultiplayerLobby(true);
+                  }}
+                  disabled={!playerName.trim()}
+                  className="w-full bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/10 text-white font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all"
+                >
+                  <Users className="w-5 h-5" />
+                  MULTIPLAYER SQUAD
                 </button>
                 <div className="text-[10px] text-white/30 text-center uppercase tracking-widest mt-4">
                   Neural stability at 98.4% // Tactical sync enabled
                 </div>
               </div>
+            </div>
+          ) : showMultiplayerLobby ? (
+            <div className="max-w-md w-full animate-in slide-in-from-bottom-8 duration-500">
+                <div className="flex flex-col items-center mb-8">
+                    <div className="flex items-center gap-2 text-cyan-500 mb-2">
+                        <Users className="w-5 h-5" />
+                        <span className="text-xs tracking-[0.3em] font-bold uppercase">Squad Formation Protocol</span>
+                    </div>
+                    <h2 className="text-4xl font-black italic tracking-tight">ENLIST YOUR TEAM</h2>
+                </div>
+
+                <div className="space-y-6 bg-slate-900/60 p-8 border border-white/5">
+                    <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-widest text-cyan-400/50 block">Identity Confirmed</label>
+                        <div className="w-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 font-mono text-cyan-400">
+                            {playerName}
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[10px] uppercase tracking-widest text-white/40 block">Tactical Frequency (Room ID)</label>
+                        <div className="relative">
+                            <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                            <input 
+                                type="text" 
+                                placeholder="ALPHA-7..."
+                                value={roomId}
+                                onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+                                className="w-full bg-black/40 border border-white/10 pl-11 pr-4 py-3 font-mono text-cyan-500 focus:border-cyan-500 outline-none transition-colors"
+                            />
+                        </div>
+                    </div>
+                    
+                    <button 
+                        onClick={() => setShowThemeSelect(true)}
+                        disabled={!playerName || !roomId}
+                        className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:hover:bg-cyan-600 text-black font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all mt-4"
+                    >
+                        INITIALIZE DEPLOYMENT
+                    </button>
+                    
+                    <button 
+                        onClick={() => setShowMultiplayerLobby(false)}
+                        className="w-full text-[10px] text-white/40 hover:text-white uppercase tracking-[0.3em] transition-colors pt-2"
+                    >
+                        ABORT PROTOCOL
+                    </button>
+                </div>
             </div>
           ) : (
             <div className="max-w-4xl w-full animate-in slide-in-from-bottom-8 duration-500">
@@ -264,8 +366,16 @@ const App: React.FC = () => {
             enemiesRemaining={TOTAL_ENEMIES_COUNT - stats.kills}
             currentWeaponType={stats.currentWeapon}
             mission={mission}
+            isMultiplayer={isMultiplayer}
+            playerName={playerName}
           />
-          <HUD stats={stats} mission={mission} totalEnemies={TOTAL_ENEMIES_COUNT} />
+          <HUD
+            stats={stats}
+            mission={mission}
+            totalEnemies={TOTAL_ENEMIES_COUNT}
+            roomId={isMultiplayer ? roomId : 'SOLO'}
+            playerName={playerName}
+          />
           <div className="fixed top-8 left-1/2 -translate-x-1/2 text-[10px] text-white/20 uppercase tracking-[0.5em] pointer-events-none text-center">
             WASD TO MOVE // SPACE TO JUMP // 1, 2, 3 TO SWITCH WEAPONS<br/>
             MOUSE TO AIM // LEFT CLICK TO FIRE

@@ -6,7 +6,8 @@ import { EffectComposer, Bloom, Vignette, Noise, Scanline, ChromaticAberration }
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import Weapon from './Weapon';
-import { Enemy, WeaponType, WEAPONS, AIState, Mission, MapTheme } from '../types';
+import { Enemy, WeaponType, WEAPONS, AIState, Mission, MapTheme, MultiplayerPlayer } from '../types';
+import { multiplayerService } from '../services/multiplayerService';
 
 interface GameWorldProps {
   isPaused: boolean;
@@ -17,6 +18,8 @@ interface GameWorldProps {
   enemiesRemaining: number;
   currentWeaponType: WeaponType;
   mission: Mission | null;
+  isMultiplayer: boolean;
+  playerName: string;
 }
 
 const THEME_CONFIG = {
@@ -166,7 +169,7 @@ const TacticalMap: React.FC<{ extractionReady: boolean; mission: Mission | null 
   );
 };
 
-const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => void; mission: Mission | null }> = ({ extractionReady, onVictory, mission }) => {
+const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => void; mission: Mission | null; isMultiplayer: boolean }> = ({ extractionReady, onVictory, mission, isMultiplayer }) => {
   const { camera } = useThree();
   const keys = useKeyboard();
   const verticalVelocity = useRef(0);
@@ -175,6 +178,7 @@ const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => vo
   const PLAYER_RADIUS = 0.8;
   const bobRef = useRef(0);
   const tiltRef = useRef(0);
+  const lastEmitTime = useRef(0);
 
   const checkCollision = (newPos: THREE.Vector3) => {
     // Boundary checks (Walls are at +/- 100)
@@ -264,6 +268,18 @@ const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => vo
     camera.position.x = THREE.MathUtils.clamp(camera.position.x, -95, 95);
     camera.position.z = THREE.MathUtils.clamp(camera.position.z, -95, 95);
     if (extractionReady && new THREE.Vector2(camera.position.x, camera.position.z).length() < 5) onVictory();
+
+    // Emit multiplayer position
+    if (isMultiplayer) {
+      const now = performance.now();
+      if (now - lastEmitTime.current > 50) { // 20Hz update rate
+        lastEmitTime.current = now;
+        multiplayerService.updatePlayer({
+          position: [camera.position.x, camera.position.y, camera.position.z],
+          rotation: [camera.rotation.x, camera.rotation.y, camera.rotation.z]
+        });
+      }
+    }
   });
   return null;
 };
@@ -527,16 +543,104 @@ const EnemyNPC: React.FC<{
   );
 };
 
-const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVictory, enemiesRemaining, currentWeaponType, mission }) => {
+const OtherPlayer: React.FC<{ player: MultiplayerPlayer; theme: any }> = ({ player, theme }) => {
+  const groupRef = useRef<THREE.Group>(null);
+  
+  useFrame(() => {
+    if (groupRef.current) {
+        groupRef.current.position.lerp(new THREE.Vector3(...player.position), 0.2);
+        groupRef.current.rotation.y = player.rotation[1];
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      {/* Player Body */}
+      <mesh position={[0, 0.9, 0]}>
+        <boxGeometry args={[0.6, 1.8, 0.3]} />
+        <meshStandardMaterial color="#333" metalness={0.8} />
+      </mesh>
+      {/* Head with visor */}
+      <mesh position={[0, 1.7, 0]}>
+        <sphereGeometry args={[0.2, 16, 16]} />
+        <meshStandardMaterial color="#111" />
+      </mesh>
+      <mesh position={[0, 1.75, 0.15]}>
+        <boxGeometry args={[0.25, 0.05, 0.1]} />
+        <meshStandardMaterial color={theme.neon} emissive={theme.neon} emissiveIntensity={5} />
+      </mesh>
+      {/* Name Tag */}
+      <group position={[0, 2.2, 0]}>
+        {/* We would use Text component here, but for simplicity let's stick to core Drei later if needed */}
+      </group>
+      {/* Other player weapon could be added here */}
+      <group position={[0.4, 0.9, 0.3]} rotation={[Math.PI / 2, 0, 0]}>
+         <mesh>
+             <boxGeometry args={[0.1, 0.5, 0.1]} />
+             <meshStandardMaterial color="#000" />
+         </mesh>
+      </group>
+    </group>
+  );
+};
+
+const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVictory, enemiesRemaining, currentWeaponType, mission, isMultiplayer, playerName }) => {
   const vfxRef = useRef<any>(null);
   const { camera, scene } = useThree();
   const [isFiring, setIsFiring] = useState(false);
   const [enemies, setEnemies] = useState<Enemy[]>([]);
+  const [otherPlayers, setOtherPlayers] = useState<Record<string, MultiplayerPlayer>>({});
   const lastShootTime = useRef(0);
   const mousePressed = useRef(false);
   const theme = mission ? THEME_CONFIG[mission.mapTheme] : THEME_CONFIG[MapTheme.CYBER];
 
   useEffect(() => {
+    if (isMultiplayer) {
+        multiplayerService.onPlayerJoined((p) => {
+            setOtherPlayers(prev => ({ ...prev, [p.id]: p }));
+        });
+        multiplayerService.onPlayerLeft((id) => {
+            setOtherPlayers(prev => {
+                const n = { ...prev };
+                delete n[id];
+                return n;
+            });
+        });
+        multiplayerService.onPlayerUpdated((p) => {
+            setOtherPlayers(prev => ({ ...prev, [p.id]: p }));
+        });
+        multiplayerService.onRoomState((state) => {
+            const others = { ...state.players };
+            delete others[multiplayerService.getSocketId() || ''];
+            setOtherPlayers(others);
+            if (state.enemies.length > 0) {
+                setEnemies(state.enemies);
+            }
+        });
+        multiplayerService.onEnemyUpdated((enemy) => {
+            setEnemies(prev => {
+                const existing = prev.find(e => e.id === enemy.id);
+                if (existing?.isAlive && !enemy.isAlive) {
+                    onKill(); // Count kill for this player too if they see it happen
+                }
+                return prev.map(e => e.id === enemy.id ? enemy : e);
+            });
+        });
+        multiplayerService.onPlayerFired(({ playerId, weaponType }) => {
+            const p = otherPlayers[playerId];
+            if (p && vfxRef.current) {
+                // Trigger muzzle flash effect for other player? 
+                // For now just visualization.
+            }
+        });
+    }
+  }, [isMultiplayer]);
+
+  useEffect(() => {
+    if (isMultiplayer) {
+         // Mission/Enemies are synced via socket
+         return;
+    }
     const list: Enemy[] = [];
     for (let i = 0; i < 18; i++) {
         const angle = (i / 18) * Math.PI * 2;
@@ -555,7 +659,7 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
     // Reset camera position for new mission to center safe zone
     camera.position.set(0, 1.8, 10);
     camera.rotation.set(0, 0, 0);
-  }, [mission, camera]); // Re-spawn enemies and reset player if mission changes
+  }, [mission, camera, isMultiplayer]); // Re-spawn enemies and reset player if mission changes
 
   const updateEnemyPosition = useCallback((id: string, pos: [number, number, number], state: AIState, target?: [number, number, number]) => {
     setEnemies(prev => prev.map(e => e.id === id ? { ...e, position: pos, aiState: state, targetPosition: target } : e));
@@ -570,6 +674,10 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
     onFire();
     setIsFiring(true);
     setTimeout(() => setIsFiring(false), 50);
+
+    if (isMultiplayer) {
+      multiplayerService.fireWeapon(currentWeaponType);
+    }
 
     const raycaster = new THREE.Raycaster();
     for (let i = 0; i < config.projectiles; i++) {
@@ -613,6 +721,12 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
   }, [handleShoot, isPaused, currentWeaponType]);
 
   const handleEnemyHit = (id: string, pos: THREE.Vector3) => {
+    if (isMultiplayer) {
+      multiplayerService.enemyHit(id, WEAPONS[currentWeaponType].damage);
+      // VFX only locallay, actual death synced from server
+      if (vfxRef.current) vfxRef.current.triggerEffect(pos, new THREE.Color(0xff0000), 50, 0.4);
+      return;
+    }
     setEnemies(prev => prev.map(e => {
         if (e.id === id) {
             onKill();
@@ -622,6 +736,15 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
         return e;
     }));
   };
+
+  // Sync enemies killed remotely to local HUD
+  useEffect(() => {
+    const aliveCount = enemies.filter(e => e.isAlive).length;
+    // This is approximate but helps HUD
+    if (enemies.length > 0 && enemiesRemaining > aliveCount) {
+        // Someone killed something
+    }
+  }, [enemies, enemiesRemaining]);
 
   return (
     <>
@@ -680,6 +803,9 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
       
       <TacticalMap extractionReady={enemiesRemaining <= 0} mission={mission} />
       <VFXManager ref={vfxRef} />
+      {Object.values(otherPlayers).map(player => (
+        <OtherPlayer key={player.id} player={player} theme={theme} />
+      ))}
       {enemies.map(enemy => (
         <group key={enemy.id} userData={{ enemyId: enemy.id }}>
            <EnemyNPC 
@@ -693,7 +819,12 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
       ))}
       {!isPaused && (
         <group>
-          <PlayerController extractionReady={enemiesRemaining <= 0} onVictory={onVictory} mission={mission} />
+          <PlayerController 
+            extractionReady={enemiesRemaining <= 0} 
+            onVictory={onVictory} 
+            mission={mission} 
+            isMultiplayer={isMultiplayer}
+          />
           <Weapon isFiring={isFiring} type={currentWeaponType} />
           <PointerLockControls />
         </group>
