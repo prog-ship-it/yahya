@@ -6,6 +6,7 @@ import { soundService } from './services/soundService';
 import { multiplayerService } from './services/multiplayerService';
 import HUD from './components/HUD';
 import GameWorld from './components/GameWorld';
+import MobileControls from './components/MobileControls';
 import { Terminal, Shield, Play, RotateCcw, Award, AlertTriangle, Target, Trophy, Map as MapIcon, ChevronRight, Users, Hash } from 'lucide-react';
 
 const TOTAL_ENEMIES_COUNT = 18;
@@ -23,8 +24,31 @@ const App: React.FC = () => {
   const [showThemeSelect, setShowThemeSelect] = useState(false);
   const [showMultiplayerLobby, setShowMultiplayerLobby] = useState(false);
   const [roomId, setRoomId] = useState('');
-  const [playerName, setPlayerName] = useState('');
+  const [playerName, setPlayerName] = useState(localStorage.getItem('gemini_strike_player_name') || '');
   const [isMultiplayer, setIsMultiplayer] = useState(false);
+  
+  // Mobile Support
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileMove, setMobileMove] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isHandheld = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isSmall = window.innerWidth < 1024;
+      
+      // Only force mobile mode if it's a known handheld agent OR a small touch screen
+      // This prevents desktops with touch monitors from being locked out of mouse controls
+      setIsMobile(isHandheld || (isSmall && isTouch));
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('gemini_strike_player_name', playerName);
+  }, [playerName]);
   const [mission, setMission] = useState<Mission | null>(null);
   const [stats, setStats] = useState<PlayerStats>({
     health: 100,
@@ -48,15 +72,31 @@ const App: React.FC = () => {
       multiplayerService.onRoomState(async (state) => {
         if (state.mission) {
           setMission(state.mission);
+          setGameState(GameState.MISSION_BRIEF);
+          soundService.playMissionStart();
         } else {
           const newMission = await generateMission(selectedTheme);
           setMission(newMission);
-          // Sync with others (server will spawn enemies if I'm the first, otherwise it should handle it)
-          // For simplicity, let's just let the joiner use their own generated mission if none exists
-          multiplayerService.syncMission(newMission, []);
+          
+          // Generate initial enemies for the room if I'm the first
+          const initialEnemies: any[] = [];
+          for (let i = 0; i < TOTAL_ENEMIES_COUNT; i++) {
+            const angle = (i / TOTAL_ENEMIES_COUNT) * Math.PI * 2;
+            const radius = 40 + Math.random() * 40;
+            initialEnemies.push({ 
+              id: `e-${i}`, 
+              position: [Math.cos(angle) * radius, 0, Math.sin(angle) * radius], 
+              health: 100, 
+              type: i % 5 === 0 ? 'tank' : 'soldier', 
+              isAlive: true,
+              aiState: 'IDLE' 
+            });
+          }
+          
+          multiplayerService.syncMission(newMission, initialEnemies);
+          setGameState(GameState.MISSION_BRIEF);
+          soundService.playMissionStart();
         }
-        setGameState(GameState.MISSION_BRIEF);
-        soundService.playMissionStart();
       });
     } else {
       const newMission = await generateMission(selectedTheme);
@@ -167,28 +207,30 @@ const App: React.FC = () => {
                   />
                 </div>
 
-                <button 
-                  onClick={() => {
-                    setIsMultiplayer(false);
-                    setShowThemeSelect(true);
-                  }}
-                  disabled={!playerName.trim()}
-                  className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 disabled:grayscale text-black font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
-                >
-                  <Play className="w-5 h-5 fill-current" />
-                  SOLO OPERATION
-                </button>
-                <button 
-                  onClick={() => {
-                    setIsMultiplayer(true);
-                    setShowMultiplayerLobby(true);
-                  }}
-                  disabled={!playerName.trim()}
-                  className="w-full bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/10 text-white font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all"
-                >
-                  <Users className="w-5 h-5" />
-                  MULTIPLAYER SQUAD
-                </button>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => {
+                      setIsMultiplayer(false);
+                      setShowThemeSelect(true);
+                    }}
+                    disabled={!playerName.trim()}
+                    className="flex-1 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:hover:bg-cyan-600 disabled:grayscale text-black font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+                  >
+                    <Play className="w-5 h-5 fill-current" />
+                    SOLO
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setIsMultiplayer(true);
+                      setShowMultiplayerLobby(true);
+                    }}
+                    disabled={!playerName.trim()}
+                    className="flex-1 bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/10 text-white font-bold py-4 rounded-sm flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Users className="w-5 h-5" />
+                    SQUAD
+                  </button>
+                </div>
                 <div className="text-[10px] text-white/30 text-center uppercase tracking-widest mt-4">
                   Neural stability at 98.4% // Tactical sync enabled
                 </div>
@@ -312,37 +354,37 @@ const App: React.FC = () => {
       )}
 
       {gameState === GameState.MISSION_BRIEF && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-8">
-          <div className="max-w-3xl w-full border border-cyan-500/30 p-12 bg-slate-900/40 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4">
-              <AlertTriangle className="text-amber-500 w-12 h-12 opacity-20" />
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 md:p-8">
+          <div className="max-w-3xl w-full border border-cyan-500/30 p-6 md:p-12 bg-slate-900/40 relative overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="absolute top-0 right-0 p-2 md:p-4">
+              <AlertTriangle className="text-amber-500 w-8 h-8 md:w-12 md:h-12 opacity-20" />
             </div>
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-2 h-12 bg-cyan-500"></div>
+            <div className="flex items-center gap-2 md:gap-4 mb-4 md:mb-8">
+              <div className="w-1.5 md:w-2 h-8 md:h-12 bg-cyan-500"></div>
               <div>
-                <div className="text-xs uppercase tracking-[0.3em] text-cyan-500/70 font-bold mb-1">Combat Intelligence Report</div>
-                <h2 className="text-4xl font-black tracking-tight">{mission?.title}</h2>
+                <div className="text-[8px] md:text-xs uppercase tracking-[0.3em] text-cyan-500/70 font-bold mb-0.5 md:mb-1">Combat Intelligence Report</div>
+                <h2 className="text-2xl md:text-4xl font-black tracking-tight">{mission?.title}</h2>
               </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-12 mb-12">
-              <div className="space-y-6">
+            <div className="grid md:grid-cols-2 gap-6 md:gap-12 mb-8 md:mb-12">
+              <div className="space-y-4 md:space-y-6">
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Deployment Zone</div>
-                  <div className="text-lg font-mono">{mission?.location}</div>
+                  <div className="text-[8px] md:text-[10px] uppercase tracking-widest text-white/40 mb-1 md:mb-2">Deployment Zone</div>
+                  <div className="text-sm md:text-lg font-mono">{mission?.location}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Threat Assessment</div>
+                  <div className="text-[8px] md:text-[10px] uppercase tracking-widest text-white/40 mb-1 md:mb-2">Threat Assessment</div>
                   <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-red-900/30 border border-red-500/50 text-red-400 text-xs font-bold rounded-sm">
+                    <span className="px-2 md:px-3 py-0.5 md:py-1 bg-red-900/30 border border-red-500/50 text-red-400 text-[10px] font-bold rounded-sm">
                       {mission?.difficulty.toUpperCase()}
                     </span>
-                    <div className="text-sm font-mono text-white/70">LVL {mission?.threatLevel}</div>
+                    <div className="text-xs md:text-sm font-mono text-white/70">LVL {mission?.threatLevel}</div>
                   </div>
                 </div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Mission Objectives</div>
-                <p className="text-white/80 leading-relaxed italic text-lg">"{mission?.objective}"</p>
+                <div className="text-[8px] md:text-[10px] uppercase tracking-widest text-white/40 mb-1 md:mb-2">Mission Objectives</div>
+                <p className="text-white/80 leading-relaxed italic text-sm md:text-lg">"{mission?.objective}"</p>
               </div>
             </div>
             <button 
@@ -368,6 +410,7 @@ const App: React.FC = () => {
             mission={mission}
             isMultiplayer={isMultiplayer}
             playerName={playerName}
+            mobileInput={isMobile ? mobileMove : undefined}
           />
           <HUD
             stats={stats}
@@ -376,45 +419,75 @@ const App: React.FC = () => {
             roomId={isMultiplayer ? roomId : 'SOLO'}
             playerName={playerName}
           />
-          <div className="fixed top-8 left-1/2 -translate-x-1/2 text-[10px] text-white/20 uppercase tracking-[0.5em] pointer-events-none text-center">
-            WASD TO MOVE // SPACE TO JUMP // 1, 2, 3 TO SWITCH WEAPONS<br/>
-            MOUSE TO AIM // LEFT CLICK TO FIRE
-          </div>
+          {isMobile && (
+            <MobileControls 
+              onMove={setMobileMove}
+              onFire={handleFire}
+              onJump={() => {
+                window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+                setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' })), 100);
+              }}
+              onSwitchWeapon={() => {
+                 const current = stats.currentWeapon;
+                 const next = current === WeaponType.PISTOL ? WeaponType.RIFLE : current === WeaponType.RIFLE ? WeaponType.SHOTGUN : WeaponType.PISTOL;
+                 setStats(prev => ({ 
+                   ...prev, 
+                   currentWeapon: next,
+                   ammo: WEAPONS[next].ammoCapacity,
+                   maxAmmo: WEAPONS[next].ammoCapacity
+                 }));
+                 soundService.playWeaponSwitch();
+              }}
+            />
+          )}
+          {!isMobile && (
+            <>
+              <div className="fixed top-8 left-1/2 -translate-x-1/2 text-[10px] text-white/20 uppercase tracking-[0.5em] pointer-events-none text-center">
+                WASD TO MOVE // SPACE TO JUMP // 1, 2, 3 TO SWITCH WEAPONS<br/>
+                MOUSE TO AIM // LEFT CLICK TO FIRE
+              </div>
+              <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-[10px] text-cyan-400/20 uppercase tracking-[1em] animate-pulse">
+                  [ CLICK TO CAPTURE NEURAL LINK ]
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
 
       {gameState === GameState.VICTORY && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-emerald-950/90 backdrop-blur-3xl p-6">
-          <Trophy className="w-24 h-24 text-emerald-400 mb-6 animate-pulse" />
-          <h2 className="text-7xl font-black italic tracking-tighter mb-2">MISSION ACCOMPLISHED</h2>
-          <p className="text-white/60 mb-12 tracking-widest">EXTRACTION SUCCESSFUL // SECTOR SECURED</p>
-          <div className="flex gap-4 mb-12">
-            <div className="bg-black/50 p-6 rounded text-center min-w-[150px] border border-emerald-500/20">
-              <Award className="w-6 h-6 mx-auto mb-2 text-amber-500" />
-              <div className="text-xs text-white/40 uppercase mb-1">Final Score</div>
-              <div className="text-3xl font-black">{stats.score}</div>
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-emerald-950/90 backdrop-blur-3xl p-4 md:p-6 text-center">
+          <Trophy className="w-12 h-12 md:w-24 md:h-24 text-emerald-400 mb-4 md:mb-6 animate-pulse" />
+          <h2 className="text-3xl md:text-7xl font-black italic tracking-tighter mb-1 md:mb-2">MISSION ACCOMPLISHED</h2>
+          <p className="text-[10px] md:text-base text-white/60 mb-8 md:mb-12 tracking-widest">EXTRACTION SUCCESSFUL // SECTOR SECURED</p>
+          <div className="flex flex-col md:flex-row gap-4 mb-8 md:mb-12">
+            <div className="bg-black/50 p-4 md:p-6 rounded text-center min-w-[120px] md:min-w-[150px] border border-emerald-500/20">
+              <Award className="w-4 h-4 md:w-6 md:h-6 mx-auto mb-1 md:mb-2 text-amber-500" />
+              <div className="text-[8px] md:text-xs text-white/40 uppercase mb-0.5 md:mb-1">Final Score</div>
+              <div className="text-xl md:text-3xl font-black">{stats.score}</div>
             </div>
-            <div className="bg-black/50 p-6 rounded text-center min-w-[150px] border border-emerald-500/20">
-              <Target className="w-6 h-6 mx-auto mb-2 text-cyan-400" />
-              <div className="text-xs text-white/40 uppercase mb-1">Total Kills</div>
-              <div className="text-3xl font-black">{stats.kills}</div>
+            <div className="bg-black/50 p-4 md:p-6 rounded text-center min-w-[120px] md:min-w-[150px] border border-emerald-500/20">
+              <Target className="w-4 h-4 md:w-6 md:h-6 mx-auto mb-1 md:mb-2 text-cyan-400" />
+              <div className="text-[8px] md:text-xs text-white/40 uppercase mb-0.5 md:mb-1">Total Kills</div>
+              <div className="text-xl md:text-3xl font-black">{stats.kills}</div>
             </div>
           </div>
-          <div className="flex gap-4 mb-12">
+          <div className="flex flex-col md:flex-row gap-4 mb-12 w-full max-w-xs md:max-w-none px-8 md:px-0">
             <button 
               onClick={() => {
                 setGameState(GameState.MENU);
                 setShowThemeSelect(true);
               }} 
-              className="bg-emerald-500 text-black font-black px-12 py-4 tracking-widest flex items-center gap-2 hover:bg-white transition-all transform hover:scale-105"
+              className="w-full md:w-auto bg-emerald-500 text-black font-black px-8 md:px-12 py-3 md:py-4 tracking-widest flex items-center justify-center gap-2 hover:bg-white transition-all transform hover:scale-105"
             >
-              <Play className="w-5 h-5 fill-current" />
+              <Play className="w-4 h-4 md:w-5 md:h-5 fill-current" />
               NEXT MISSION
             </button>
             <button onClick={() => {
               setGameState(GameState.MENU);
               setShowThemeSelect(false);
-            }} className="bg-white/10 text-white font-black px-12 py-4 tracking-widest flex items-center gap-2 hover:bg-white/20 transition-all">
+            }} className="w-full md:w-auto bg-white/10 text-white font-black px-8 md:px-12 py-3 md:py-4 tracking-widest flex items-center justify-center gap-2 hover:bg-white/20 transition-all">
               RETURN TO COMMAND
             </button>
           </div>

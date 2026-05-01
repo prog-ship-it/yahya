@@ -36,6 +36,13 @@ async function startServer() {
         };
       }
 
+      let uniqueName = playerName || `Agent ${socket.id.slice(0, 4)}`;
+      const existingPlayers = Object.values(rooms[roomId].players);
+      let count = 1;
+      while (existingPlayers.find(p => p.name === uniqueName)) {
+        uniqueName = `${playerName} (${count++})`;
+      }
+
       const player: MultiplayerPlayer = {
         id: socket.id,
         position: [0, 1.8, 10],
@@ -43,7 +50,7 @@ async function startServer() {
         health: 100,
         currentWeapon: 'PISTOL' as any,
         isFiring: false,
-        name: playerName || `Agent ${socket.id.slice(0, 4)}`
+        name: uniqueName
       };
 
       rooms[roomId].players[socket.id] = player;

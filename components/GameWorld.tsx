@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { PointerLockControls, Sky, Stars, Environment, MeshReflectorMaterial, ContactShadows } from '@react-three/drei';
+import { PointerLockControls, Sky, Stars, Environment, MeshReflectorMaterial, ContactShadows, Html } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, Noise, Scanline, ChromaticAberration } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
@@ -20,6 +20,7 @@ interface GameWorldProps {
   mission: Mission | null;
   isMultiplayer: boolean;
   playerName: string;
+  mobileInput?: { x: number; y: number };
 }
 
 const THEME_CONFIG = {
@@ -169,8 +170,19 @@ const TacticalMap: React.FC<{ extractionReady: boolean; mission: Mission | null 
   );
 };
 
-const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => void; mission: Mission | null; isMultiplayer: boolean }> = ({ extractionReady, onVictory, mission, isMultiplayer }) => {
-  const { camera } = useThree();
+const PlayerController: React.FC<{ 
+  extractionReady: boolean; 
+  onVictory: () => void; 
+  mission: Mission | null; 
+  isMultiplayer: boolean;
+  mobileInput?: { x: number; y: number };
+}> = ({ extractionReady, onVictory, mission, isMultiplayer, mobileInput }) => {
+  const { camera, gl } = useThree();
+  
+  useEffect(() => {
+    camera.rotation.order = 'YXZ';
+  }, [camera]);
+
   const keys = useKeyboard();
   const verticalVelocity = useRef(0);
   const isGrounded = useRef(true);
@@ -179,6 +191,48 @@ const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => vo
   const bobRef = useRef(0);
   const tiltRef = useRef(0);
   const lastEmitTime = useRef(0);
+
+  // Mobile Touch Rotation
+  const lastTouch = useRef<{ x: number, y: number } | null>(null);
+
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+        const touch = e.touches[0];
+        // Only start rotation if touch is on the right half of the screen
+        if (touch.clientX > window.innerWidth / 2) {
+            lastTouch.current = { x: touch.clientX, y: touch.clientY };
+        }
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+        if (!lastTouch.current) return;
+        const touch = Array.from(e.touches).find(t => t.clientX > window.innerWidth / 2);
+        if (!touch) return;
+
+        const dx = touch.clientX - lastTouch.current.x;
+        const dy = touch.clientY - lastTouch.current.y;
+        
+        lastTouch.current = { x: touch.clientX, y: touch.clientY };
+        
+        camera.rotation.y -= dx * 0.005;
+        camera.rotation.x -= dy * 0.005;
+        camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+    };
+    const handleTouchEnd = (e: TouchEvent) => {
+        if (e.touches.length === 0 || !Array.from(e.touches).some(t => t.clientX > window.innerWidth / 2)) {
+            lastTouch.current = null;
+        }
+    };
+
+    const element = gl.domElement;
+    element.addEventListener('touchstart', handleTouchStart);
+    element.addEventListener('touchmove', handleTouchMove);
+    element.addEventListener('touchend', handleTouchEnd);
+    return () => {
+        element.removeEventListener('touchstart', handleTouchStart);
+        element.removeEventListener('touchmove', handleTouchMove);
+        element.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [camera, gl]);
 
   const checkCollision = (newPos: THREE.Vector3) => {
     // Boundary checks (Walls are at +/- 100)
@@ -209,10 +263,20 @@ const PlayerController: React.FC<{ extractionReady: boolean; onVictory: () => vo
 
   useFrame((state, delta) => {
     const moveSpeed = keys.shift ? 14 : 8;
-    const direction = new THREE.Vector3(Number(keys.right) - Number(keys.left), 0, Number(keys.backward) - Number(keys.forward)).normalize();
+    
+    let directionX = Number(keys.right) - Number(keys.left);
+    let directionZ = Number(keys.backward) - Number(keys.forward);
+
+    if (mobileInput && (mobileInput.x !== 0 || mobileInput.y !== 0)) {
+        directionX = mobileInput.x;
+        directionZ = -mobileInput.y;
+    }
+
+    const direction = new THREE.Vector3(directionX, 0, directionZ);
+    if (direction.length() > 1) direction.normalize();
     
     // View Bobbing & Sway
-    if (direction.length() > 0 && isGrounded.current) {
+    if (direction.length() > 0.1 && isGrounded.current) {
       bobRef.current += delta * (keys.shift ? 18 : 12);
     } else {
       bobRef.current = THREE.MathUtils.lerp(bobRef.current, 0, 0.1);
@@ -545,7 +609,18 @@ const EnemyNPC: React.FC<{
 
 const OtherPlayer: React.FC<{ player: MultiplayerPlayer; theme: any }> = ({ player, theme }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const [isFiring, setIsFiring] = useState(false);
   
+  useEffect(() => {
+    const handleFired = ({ playerId }: { playerId: string }) => {
+      if (playerId === player.id) {
+        setIsFiring(true);
+        setTimeout(() => setIsFiring(false), 50);
+      }
+    };
+    multiplayerService.onPlayerFired(handleFired);
+  }, [player.id]);
+
   useFrame(() => {
     if (groupRef.current) {
         groupRef.current.position.lerp(new THREE.Vector3(...player.position), 0.2);
@@ -555,6 +630,12 @@ const OtherPlayer: React.FC<{ player: MultiplayerPlayer; theme: any }> = ({ play
 
   return (
     <group ref={groupRef}>
+      {/* Name Tag */}
+      <Html position={[0, 2.3, 0]} center distanceFactor={10}>
+        <div className="bg-black/60 backdrop-blur-sm border border-cyan-500/30 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-400 whitespace-nowrap uppercase tracking-tighter">
+          {player.name}
+        </div>
+      </Html>
       {/* Player Body */}
       <mesh position={[0, 0.9, 0]}>
         <boxGeometry args={[0.6, 1.8, 0.3]} />
@@ -569,22 +650,24 @@ const OtherPlayer: React.FC<{ player: MultiplayerPlayer; theme: any }> = ({ play
         <boxGeometry args={[0.25, 0.05, 0.1]} />
         <meshStandardMaterial color={theme.neon} emissive={theme.neon} emissiveIntensity={5} />
       </mesh>
-      {/* Name Tag */}
-      <group position={[0, 2.2, 0]}>
-        {/* We would use Text component here, but for simplicity let's stick to core Drei later if needed */}
-      </group>
-      {/* Other player weapon could be added here */}
+      {/* Other player weapon */}
       <group position={[0.4, 0.9, 0.3]} rotation={[Math.PI / 2, 0, 0]}>
          <mesh>
              <boxGeometry args={[0.1, 0.5, 0.1]} />
              <meshStandardMaterial color="#000" />
          </mesh>
+         {isFiring && (
+           <mesh position={[0, 0.3, 0]}>
+             <sphereGeometry args={[0.15, 8, 8]} />
+             <meshBasicMaterial color={theme.neon} transparent opacity={0.8} />
+           </mesh>
+         )}
       </group>
     </group>
   );
 };
 
-const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVictory, enemiesRemaining, currentWeaponType, mission, isMultiplayer, playerName }) => {
+const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVictory, enemiesRemaining, currentWeaponType, mission, isMultiplayer, playerName, mobileInput }) => {
   const vfxRef = useRef<any>(null);
   const { camera, scene } = useThree();
   const [isFiring, setIsFiring] = useState(false);
@@ -627,11 +710,8 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
             });
         });
         multiplayerService.onPlayerFired(({ playerId, weaponType }) => {
-            const p = otherPlayers[playerId];
-            if (p && vfxRef.current) {
-                // Trigger muzzle flash effect for other player? 
-                // For now just visualization.
-            }
+            // Firing is handled inside OtherPlayer component for muzzle flash
+            // Sound could be added here if needed to be spatial
         });
     }
   }, [isMultiplayer]);
@@ -824,9 +904,10 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
             onVictory={onVictory} 
             mission={mission} 
             isMultiplayer={isMultiplayer}
+            mobileInput={mobileInput}
           />
           <Weapon isFiring={isFiring} type={currentWeaponType} />
-          <PointerLockControls />
+          {!isMultiplayer || !mobileInput ? <PointerLockControls /> : null}
         </group>
       )}
     </>
