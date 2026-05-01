@@ -28,15 +28,15 @@ const Weapon: React.FC<WeaponProps> = ({ isFiring, type }) => {
     groupRef.current.position.set(0.55 + swayX, -0.45 + swayY, -0.8);
 
     // Recoil and Muzzle Flash intensity based on type
-    const recoilIntensity = type === WeaponType.SHOTGUN ? 0.25 : type === WeaponType.RIFLE ? 0.06 : 0.1;
-    const recoilRot = type === WeaponType.SHOTGUN ? 0.2 : 0.08;
+    const recoilIntensity = type === WeaponType.SHOTGUN || type === WeaponType.RAILGUN ? 0.25 : type === WeaponType.SNIPER ? 0.35 : type === WeaponType.RIFLE ? 0.06 : 0.1;
+    const recoilRot = type === WeaponType.SHOTGUN || type === WeaponType.RAILGUN ? 0.2 : type === WeaponType.SNIPER ? 0.4 : 0.08;
 
     if (isFiring) {
         groupRef.current.position.z += recoilIntensity;
         groupRef.current.rotation.x += recoilRot;
         if (muzzleFlashRef.current) {
             muzzleFlashRef.current.visible = true;
-            const flashScale = type === WeaponType.SHOTGUN ? 2.5 : 1.2;
+            const flashScale = type === WeaponType.RAILGUN ? 4 : type === WeaponType.SHOTGUN ? 2.5 : 1.2;
             muzzleFlashRef.current.scale.setScalar(flashScale + Math.random() * 0.5);
             muzzleFlashRef.current.rotation.z = Math.random() * Math.PI;
         }
@@ -158,6 +158,78 @@ const Weapon: React.FC<WeaponProps> = ({ isFiring, type }) => {
             <mesh position={[0, -0.08, -0.4]} rotation={[Math.PI / 2, 0, 0]}>
               <cylinderGeometry args={[0.01, 0.01, 0.01]} />
               <meshBasicMaterial color="#ff0000" />
+            </mesh>
+          </group>
+        )}
+
+        {type === WeaponType.SMG && (
+          <group>
+            {/* Compact Body */}
+            <mesh position={[0, 0.1, -0.2]}>
+              <boxGeometry args={[0.16, 0.3, 0.6]} />
+              <meshStandardMaterial color="#111" />
+            </mesh>
+            {/* Short Barrel */}
+            <mesh position={[0, 0.15, -0.6]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.03, 0.03, 0.3]} />
+              <meshStandardMaterial color="#000" />
+            </mesh>
+            {/* Magazine */}
+            <mesh position={[0, -0.2, -0.1]}>
+              <boxGeometry args={[0.1, 0.5, 0.1]} />
+              <meshStandardMaterial color="#0a0a0a" />
+            </mesh>
+          </group>
+        )}
+
+        {type === WeaponType.SNIPER && (
+          <group>
+            {/* Long Body */}
+            <mesh position={[0, 0.1, -0.1]}>
+              <boxGeometry args={[0.18, 0.25, 1.2]} />
+              <meshStandardMaterial color="#050505" />
+            </mesh>
+            {/* Sniper Barrel */}
+            <mesh position={[0, 0.12, -1.2]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.04, 0.04, 1.5]} />
+              <meshStandardMaterial color="#000" />
+            </mesh>
+            {/* Scope */}
+            <mesh position={[0, 0.3, -0.2]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.05, 0.05, 0.4]} />
+              <meshStandardMaterial color="#111" />
+            </mesh>
+            <mesh position={[0, 0.3, -0.38]}>
+              <planeGeometry args={[0.08, 0.08]} />
+              <meshBasicMaterial color="#00ff00" transparent opacity={0.4} />
+            </mesh>
+          </group>
+        )}
+
+        {type === WeaponType.RAILGUN && (
+          <group>
+            {/* Futuristic Split Body */}
+            <mesh position={[0, 0.2, -0.4]}>
+              <boxGeometry args={[0.05, 0.4, 1.2]} />
+              <meshStandardMaterial color="#222" />
+            </mesh>
+            <mesh position={[0, -0.1, -0.4]}>
+              <boxGeometry args={[0.2, 0.2, 1.2]} />
+              <meshStandardMaterial color="#111" />
+            </mesh>
+            {/* Energy Core */}
+            <mesh position={[0, 0.05, -0.4]}>
+              <boxGeometry args={[0.1, 0.1, 1.0]} />
+              <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={5} />
+            </mesh>
+            {/* Rail Side Panels */}
+            <mesh position={[-0.1, 0.1, -0.4]}>
+              <boxGeometry args={[0.02, 0.3, 1.1]} />
+              <meshStandardMaterial color="#333" />
+            </mesh>
+            <mesh position={[0.1, 0.1, -0.4]}>
+              <boxGeometry args={[0.02, 0.3, 1.1]} />
+              <meshStandardMaterial color="#333" />
             </mesh>
           </group>
         )}

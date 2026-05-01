@@ -11,7 +11,10 @@ export enum GameState {
 export enum WeaponType {
   PISTOL = 'PISTOL',
   RIFLE = 'RIFLE',
-  SHOTGUN = 'SHOTGUN'
+  SHOTGUN = 'SHOTGUN',
+  SMG = 'SMG',
+  SNIPER = 'SNIPER',
+  RAILGUN = 'RAILGUN'
 }
 
 export interface WeaponConfig {
@@ -55,8 +58,51 @@ export const WEAPONS: Record<WeaponType, WeaponConfig> = {
     spread: 0.15,
     projectiles: 8,
     automatic: false
+  },
+  [WeaponType.SMG]: {
+    name: 'K-9 NEURAL SHREDDER',
+    type: WeaponType.SMG,
+    fireRate: 60,
+    ammoCapacity: 50,
+    damage: 8,
+    spread: 0.08,
+    projectiles: 1,
+    automatic: true
+  },
+  [WeaponType.SNIPER]: {
+    name: 'X-1 COVERT LANCE',
+    type: WeaponType.SNIPER,
+    fireRate: 1500,
+    ammoCapacity: 5,
+    damage: 120,
+    spread: 0.0,
+    projectiles: 1,
+    automatic: false
+  },
+  [WeaponType.RAILGUN]: {
+    name: 'VOID-RAIL ACCELERATOR',
+    type: WeaponType.RAILGUN,
+    fireRate: 3000,
+    ammoCapacity: 3,
+    damage: 250,
+    spread: 0.0,
+    projectiles: 1,
+    automatic: false
   }
 };
+
+export enum GameMode {
+  COOP = 'COOP',
+  TDM = 'TDM',
+  FFA = 'FFA',
+  CTF = 'CTF'
+}
+
+export enum Team {
+  NONE = 'NONE',
+  NEON = 'NEON',
+  VOID = 'VOID'
+}
 
 export enum MapTheme {
   CYBER = 'CYBER',
@@ -111,6 +157,18 @@ export interface MultiplayerPlayer {
   currentWeapon: WeaponType;
   isFiring: boolean;
   name: string;
+  team: Team;
+  kills: number;
+  deaths: number;
+  flagId?: string | null;
+}
+
+export interface Flag {
+  id: string;
+  team: Team;
+  position: [number, number, number];
+  isHeld: boolean;
+  heldBy?: string | null;
 }
 
 export interface MultiplayerRoom {
@@ -118,4 +176,7 @@ export interface MultiplayerRoom {
   players: Record<string, MultiplayerPlayer>;
   mission: Mission | null;
   enemies: Enemy[];
+  gameMode: GameMode;
+  scores: Record<Team | string, number>;
+  flags: Flag[];
 }

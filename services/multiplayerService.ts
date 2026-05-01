@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { MultiplayerPlayer, MultiplayerRoom, Mission, Enemy, WeaponType } from '../types';
+import { MultiplayerPlayer, MultiplayerRoom, Mission, Enemy, WeaponType, GameMode, Flag, Team } from '../types';
 
 class MultiplayerService {
   private socket: Socket | null = null;
@@ -11,6 +11,10 @@ class MultiplayerService {
   private onMissionSyncedCb: ((data: { mission: Mission, enemies: Enemy[] }) => void) | null = null;
   private onEnemyUpdatedCb: ((enemy: Enemy) => void) | null = null;
   private onPlayerFiredCb: ((data: { playerId: string, weaponType: WeaponType }) => void) | null = null;
+  private onModeUpdatedCb: ((data: { mode: GameMode, flags: Flag[] }) => void) | null = null;
+  private onScoreUpdatedCb: ((scores: Record<Team | string, number>) => void) | null = null;
+  private onFlagsUpdatedCb: ((flags: Flag[]) => void) | null = null;
+  private onAnnouncementCb: ((msg: string) => void) | null = null;
 
   connect() {
     if (this.socket) return;
@@ -43,6 +47,22 @@ class MultiplayerService {
     this.socket.on('player-fired', (data: { playerId: string, weaponType: WeaponType }) => {
       this.onPlayerFiredCb?.(data);
     });
+
+    this.socket.on('mode-updated', (data: { mode: GameMode, flags: Flag[] }) => {
+      this.onModeUpdatedCb?.(data);
+    });
+
+    this.socket.on('score-updated', (scores: Record<Team | string, number>) => {
+      this.onScoreUpdatedCb?.(scores);
+    });
+
+    this.socket.on('flags-updated', (flags: Flag[]) => {
+      this.onFlagsUpdatedCb?.(flags);
+    });
+
+    this.socket.on('announcement', (msg: string) => {
+      this.onAnnouncementCb?.(msg);
+    });
   }
 
   joinRoom(roomId: string, playerName: string) {
@@ -50,9 +70,24 @@ class MultiplayerService {
     this.socket?.emit('join-room', { roomId, playerName });
   }
 
+  setGameMode(mode: GameMode) {
+    if (!this.roomId) return;
+    this.socket?.emit('set-game-mode', { roomId: this.roomId, mode });
+  }
+
   updatePlayer(player: Partial<MultiplayerPlayer>) {
     if (!this.roomId) return;
     this.socket?.emit('update-player', { roomId: this.roomId, player });
+  }
+
+  playerHit(targetId: string, damage: number) {
+    if (!this.roomId || !this.socket) return;
+    this.socket.emit('player-hit', { roomId: this.roomId, targetId, damage, dealerId: this.socket.id });
+  }
+
+  flagAction(flagId: string, action: 'pickup' | 'capture' | 'drop' | 'return') {
+    if (!this.roomId || !this.socket) return;
+    this.socket.emit('flag-action', { roomId: this.roomId, flagId, playerId: this.socket.id, action });
   }
 
   syncMission(mission: Mission, enemies: Enemy[]) {
@@ -77,6 +112,10 @@ class MultiplayerService {
   onMissionSynced(cb: (data: { mission: Mission, enemies: Enemy[] }) => void) { this.onMissionSyncedCb = cb; }
   onEnemyUpdated(cb: (enemy: Enemy) => void) { this.onEnemyUpdatedCb = cb; }
   onPlayerFired(cb: (data: { playerId: string, weaponType: WeaponType }) => void) { this.onPlayerFiredCb = cb; }
+  onModeUpdated(cb: (data: { mode: GameMode, flags: Flag[] }) => void) { this.onModeUpdatedCb = cb; }
+  onScoreUpdated(cb: (scores: Record<Team | string, number>) => void) { this.onScoreUpdatedCb = cb; }
+  onFlagsUpdated(cb: (flags: Flag[]) => void) { this.onFlagsUpdatedCb = cb; }
+  onAnnouncement(cb: (msg: string) => void) { this.onAnnouncementCb = cb; }
 
   getSocketId() { return this.socket?.id; }
 }

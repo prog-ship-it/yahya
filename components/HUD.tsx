@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Shield, Target, Zap, MapPin, Swords } from 'lucide-react';
-import { PlayerStats, Mission, WEAPONS, WeaponType } from '../types';
+import { PlayerStats, Mission, WEAPONS, WeaponType, GameMode, Team } from '../types';
 
 interface HUDProps {
   stats: PlayerStats;
@@ -10,9 +10,11 @@ interface HUDProps {
   roomId?: string;
   playerName?: string;
   isMobile?: boolean;
+  gameMode?: GameMode;
+  roomScores?: Record<string, number>;
 }
 
-const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerName, isMobile }) => {
+const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerName, isMobile, gameMode, roomScores }) => {
   const healthColor = stats.health > 50 ? 'bg-emerald-500' : stats.health > 20 ? 'bg-amber-500' : 'bg-red-600';
   const enemiesRemaining = totalEnemies - stats.kills;
   const isExtractionReady = enemiesRemaining <= 0;
@@ -23,16 +25,32 @@ const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerN
       {/* Top Bar */}
       <div className="flex justify-between items-start">
         <div className="bg-black/60 backdrop-blur-md border border-white/10 p-2 md:p-4 rounded shadow-2xl max-w-[150px] md:max-w-xs">
-          <h2 className="text-[8px] md:text-xs uppercase tracking-widest text-white/50 mb-0.5 md:mb-1">Active Mission</h2>
-          <div className="text-xs md:text-xl font-bold text-cyan-400 truncate">{mission?.title || "SYSTEM INITIALIZING..."}</div>
-          <div className="hidden md:block text-[10px] text-white/70 mt-1">{mission?.objective}</div>
+          <h2 className="text-[8px] md:text-xs uppercase tracking-widest text-white/50 mb-0.5 md:mb-1">
+            {gameMode === GameMode.COOP ? 'Active Mission' : `MODE: ${gameMode}`}
+          </h2>
+          <div className="text-xs md:text-xl font-bold text-cyan-400 truncate">{mission?.title || (gameMode !== GameMode.COOP ? 'PVP ENGAGEMENT' : "SYSTEM INITIALIZING...")}</div>
           
-          <div className="mt-1 md:mt-3 flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${isExtractionReady ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-            <span className="text-[8px] md:text-[10px] uppercase tracking-tighter">
-              {isExtractionReady ? 'EXTRACT AT CENTER' : `HOSTILES: ${enemiesRemaining}`}
-            </span>
-          </div>
+          {gameMode === GameMode.COOP && (
+            <div className="mt-1 md:mt-3 flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${isExtractionReady ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-[8px] md:text-[10px] uppercase tracking-tighter">
+                {isExtractionReady ? 'EXTRACT AT CENTER' : `HOSTILES: ${enemiesRemaining}`}
+              </span>
+            </div>
+          )}
+
+          {(gameMode === GameMode.TDM || gameMode === GameMode.CTF) && roomScores && (
+            <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-cyan-400 font-bold">NEON</span>
+                    <span>{roomScores[Team.NEON] || 0}</span>
+                </div>
+                <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-red-500 font-bold">VOID</span>
+                    <span>{roomScores[Team.VOID] || 0}</span>
+                </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col md:flex-row gap-2 md:gap-4">
@@ -54,11 +72,11 @@ const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerN
       </div>
 
       {/* Middle: Weapon Selection Indicators */}
-      <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-2 md:gap-4">
-        {[WeaponType.PISTOL, WeaponType.RIFLE, WeaponType.SHOTGUN].map((type) => (
-          <div key={type} className={`p-1.5 md:p-3 border-r-2 md:border-r-4 transition-all ${stats.currentWeapon === type ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/5 bg-black/40'}`}>
-            <div className="text-[8px] md:text-[10px] text-white/40 uppercase mb-0.5 md:mb-1">[{type === WeaponType.PISTOL ? '1' : type === WeaponType.RIFLE ? '2' : '3'}]</div>
-            <div className={`text-[10px] md:text-xs font-bold ${stats.currentWeapon === type ? 'text-white' : 'text-white/20'}`}>
+      <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 flex flex-col gap-1 md:gap-2">
+        {(Object.keys(WEAPONS) as WeaponType[]).map((type, idx) => (
+          <div key={type} className={`p-1 md:p-2 border-r-2 md:border-r-4 transition-all w-20 md:w-32 ${stats.currentWeapon === type ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/5 bg-black/40 opacity-40'}`}>
+            <div className="text-[6px] md:text-[8px] text-white/40 uppercase mb-0.5">[{idx + 1}]</div>
+            <div className={`text-[8px] md:text-[10px] font-bold truncate ${stats.currentWeapon === type ? 'text-white' : 'text-white/20'}`}>
               {WEAPONS[type].name.split(' ')[1]}
             </div>
           </div>

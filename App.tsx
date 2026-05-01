@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { GameState, PlayerStats, Mission, WeaponType, WEAPONS, MapTheme } from './types';
+import { GameState, PlayerStats, Mission, WeaponType, WEAPONS, MapTheme, GameMode, Team } from './types';
 import { generateMission } from './services/geminiService';
 import { soundService } from './services/soundService';
 import { multiplayerService } from './services/multiplayerService';
 import HUD from './components/HUD';
 import GameWorld from './components/GameWorld';
 import MobileControls from './components/MobileControls';
-import { Terminal, Shield, Play, RotateCcw, Award, AlertTriangle, Target, Trophy, Map as MapIcon, ChevronRight, Users, Hash } from 'lucide-react';
+import { Terminal, Shield, Play, RotateCcw, Award, AlertTriangle, Target, Trophy, Map as MapIcon, ChevronRight, Users, Hash, Swords, Flag, Zap } from 'lucide-react';
 
 const TOTAL_ENEMIES_COUNT = 18;
 
@@ -19,6 +19,13 @@ const THEME_LABELS: Record<MapTheme, { label: string, desc: string, color: strin
   [MapTheme.VOLCANIC]: { label: 'MAGMA RIFT', desc: 'Deep earth geothermal extractors surrounded by lava.', color: 'text-red-500' }
 };
 
+const MODE_LABELS: Record<GameMode, { label: string, desc: string, icon: any }> = {
+  [GameMode.COOP]: { label: 'CO-OP EXFIL', desc: 'Work together to eliminate enemies and extract.', icon: Shield },
+  [GameMode.TDM]: { label: 'TEAM DEATHMATCH', desc: 'NEON vs VOID. First team to limit wins.', icon: Swords },
+  [GameMode.FFA]: { label: 'FREE FOR ALL', desc: 'Trust no one. Pure survival of the fittest.', icon: Target },
+  [GameMode.CTF]: { label: 'CAPTURE THE FLAG', desc: 'Steal the enemy flag and return it to base.', icon: Flag }
+};
+
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [showThemeSelect, setShowThemeSelect] = useState(false);
@@ -26,6 +33,9 @@ const App: React.FC = () => {
   const [roomId, setRoomId] = useState('');
   const [playerName, setPlayerName] = useState(localStorage.getItem('gemini_strike_player_name') || '');
   const [isMultiplayer, setIsMultiplayer] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>(GameMode.COOP);
+  const [roomScores, setRoomScores] = useState<Record<string, number>>({});
+  const [roomFlags, setRoomFlags] = useState<any[]>([]);
   
   // Mobile Support
   const [isMobile, setIsMobile] = useState(false);
@@ -36,9 +46,6 @@ const App: React.FC = () => {
       const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       const isHandheld = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       const isSmall = window.innerWidth < 1024;
-      
-      // Only force mobile mode if it's a known handheld agent OR a small touch screen
-      // This prevents desktops with touch monitors from being locked out of mouse controls
       setIsMobile(isHandheld || (isSmall && isTouch));
     };
     checkMobile();
@@ -49,6 +56,7 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('gemini_strike_player_name', playerName);
   }, [playerName]);
+
   const [mission, setMission] = useState<Mission | null>(null);
   const [stats, setStats] = useState<PlayerStats>({
     health: 100,
@@ -68,35 +76,53 @@ const App: React.FC = () => {
       multiplayerService.connect();
       multiplayerService.joinRoom(roomId || 'GLOBAL', playerName || 'Agent');
       
-      // Wait for room state
       multiplayerService.onRoomState(async (state) => {
+        setGameMode(state.gameMode || GameMode.COOP);
+        setRoomScores(state.scores || {});
+        setRoomFlags(state.flags || []);
+
         if (state.mission) {
           setMission(state.mission);
           setGameState(GameState.MISSION_BRIEF);
           soundService.playMissionStart();
         } else {
+          multiplayerService.setGameMode(gameMode);
           const newMission = await generateMission(selectedTheme);
           setMission(newMission);
           
-          // Generate initial enemies for the room if I'm the first
           const initialEnemies: any[] = [];
-          for (let i = 0; i < TOTAL_ENEMIES_COUNT; i++) {
-            const angle = (i / TOTAL_ENEMIES_COUNT) * Math.PI * 2;
-            const radius = 40 + Math.random() * 40;
-            initialEnemies.push({ 
-              id: `e-${i}`, 
-              position: [Math.cos(angle) * radius, 0, Math.sin(angle) * radius], 
-              health: 100, 
-              type: i % 5 === 0 ? 'tank' : 'soldier', 
-              isAlive: true,
-              aiState: 'IDLE' 
-            });
+          if (gameMode === GameMode.COOP) {
+            for (let i = 0; i < TOTAL_ENEMIES_COUNT; i++) {
+              const angle = (i / TOTAL_ENEMIES_COUNT) * Math.PI * 2;
+              const radius = 40 + Math.random() * 40;
+              initialEnemies.push({ 
+                id: `e-${i}`, 
+                position: [Math.cos(angle) * radius, 0, Math.sin(angle) * radius], 
+                health: 100, 
+                type: i % 5 === 0 ? 'tank' : 'soldier', 
+                isAlive: true,
+                aiState: 'IDLE' 
+              });
+            }
           }
           
           multiplayerService.syncMission(newMission, initialEnemies);
           setGameState(GameState.MISSION_BRIEF);
           soundService.playMissionStart();
         }
+      });
+
+      multiplayerService.onModeUpdated(({ mode, flags }) => {
+        setGameMode(mode);
+        setRoomFlags(flags);
+      });
+
+      multiplayerService.onScoreUpdated((scores) => {
+        setRoomScores(scores);
+      });
+
+      multiplayerService.onFlagsUpdated((flags) => {
+        setRoomFlags(flags);
       });
     } else {
       const newMission = await generateMission(selectedTheme);
@@ -117,7 +143,7 @@ const App: React.FC = () => {
 
   const switchWeapon = useCallback((type: WeaponType) => {
     if (stats.currentWeapon === type) return;
-    soundService.playReload(); // Reuse reload sound for switching
+    soundService.playWeaponSwitch();
     setStats(prev => ({
       ...prev,
       currentWeapon: type,
@@ -146,38 +172,44 @@ const App: React.FC = () => {
   const handleHit = useCallback(() => {
     soundService.playHurt();
     setStats(prev => {
-      const newHealth = Math.max(0, prev.health - 5);
-      if (newHealth === 0) setGameState(GameState.GAMEOVER);
+      const newHealth = Math.max(0, prev.health - 10);
+      if (newHealth === 0) {
+        if (!isMultiplayer) setGameState(GameState.GAMEOVER);
+        // Multi handles respawn internally or via room updates
+      }
       return { ...prev, health: newHealth };
     });
-  }, []);
+  }, [isMultiplayer]);
 
   const handleVictory = useCallback(() => {
     setGameState(GameState.VICTORY);
   }, []);
 
-  // Keyboard weapon switching
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (gameState !== GameState.PLAYING) return;
       if (e.key === '1') switchWeapon(WeaponType.PISTOL);
       if (e.key === '2') switchWeapon(WeaponType.RIFLE);
       if (e.key === '3') switchWeapon(WeaponType.SHOTGUN);
+      if (e.key === '4') switchWeapon(WeaponType.SMG);
+      if (e.key === '5') switchWeapon(WeaponType.SNIPER);
+      if (e.key === '6') switchWeapon(WeaponType.RAILGUN);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gameState, switchWeapon]);
 
-  // Reload mechanic
   useEffect(() => {
     if (stats.ammo === 0 && gameState === GameState.PLAYING) {
       soundService.playReload();
+      const weapon = WEAPONS[stats.currentWeapon];
+      const reloadTime = stats.currentWeapon === WeaponType.RAILGUN ? 3000 : 1200;
       const timer = setTimeout(() => {
         setStats(prev => ({ ...prev, ammo: prev.maxAmmo }));
-      }, 1200);
+      }, reloadTime);
       return () => clearTimeout(timer);
     }
-  }, [stats.ammo, gameState]);
+  }, [stats.ammo, gameState, stats.currentWeapon]);
 
   return (
     <div className="w-full h-screen bg-neutral-950 text-white overflow-hidden select-none">
@@ -265,6 +297,34 @@ const App: React.FC = () => {
                                 className="w-full bg-black/40 border border-white/10 pl-11 pr-4 py-3 font-mono text-cyan-500 focus:border-cyan-500 outline-none transition-colors"
                             />
                         </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[10px] uppercase tracking-widest text-white/40 block">Engagement Protocol (Mode)</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(Object.keys(MODE_LABELS) as GameMode[]).map((mode) => {
+                          const config = MODE_LABELS[mode];
+                          const Icon = config.icon;
+                          const active = gameMode === mode;
+                          return (
+                            <button
+                              key={mode}
+                              onClick={() => setGameMode(mode)}
+                              className={`flex flex-col items-center justify-center p-3 border transition-all ${
+                                active 
+                                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400' 
+                                : 'bg-black/40 border-white/10 text-white/40 hover:border-white/30'
+                              }`}
+                            >
+                              <Icon className={`w-5 h-5 mb-1 ${active ? 'animate-pulse' : ''}`} />
+                              <div className="text-[9px] font-black tracking-widest">{config.label}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="text-[10px] text-white/30 italic text-center px-4">
+                        {MODE_LABELS[gameMode].desc}
+                      </div>
                     </div>
                     
                     <button 
@@ -411,6 +471,8 @@ const App: React.FC = () => {
             isMultiplayer={isMultiplayer}
             playerName={playerName}
             mobileInput={isMobile ? mobileMove : undefined}
+            gameMode={gameMode}
+            roomFlags={roomFlags}
           />
           <HUD
             stats={stats}
@@ -418,6 +480,9 @@ const App: React.FC = () => {
             totalEnemies={TOTAL_ENEMIES_COUNT}
             roomId={isMultiplayer ? roomId : 'SOLO'}
             playerName={playerName}
+            gameMode={gameMode}
+            roomScores={roomScores}
+            isMobile={isMobile}
           />
           {isMobile && (
             <MobileControls 
