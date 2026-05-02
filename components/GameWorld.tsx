@@ -912,15 +912,15 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
     <>
       <EffectComposer disableNormalPass>
         <Bloom 
-          intensity={1.5} 
-          luminanceThreshold={0.4} 
+          intensity={mobileInput ? 0.8 : 1.5} 
+          luminanceThreshold={mobileInput ? 0.9 : 0.4} 
           luminanceSmoothing={0.9} 
           mipmapBlur 
         />
-        <ChromaticAberration offset={new THREE.Vector2(0.001, 0.001)} />
+        {!mobileInput && <ChromaticAberration offset={new THREE.Vector2(0.001, 0.001)} />}
         <Vignette eskil={false} offset={0.1} darkness={0.5} />
-        <Noise opacity={0.02} blendFunction={BlendFunction.OVERLAY} />
-        <Scanline density={1.2} opacity={0.02} />
+        {!mobileInput && <Noise opacity={0.02} blendFunction={BlendFunction.OVERLAY} />}
+        {!mobileInput && <Scanline density={1.2} opacity={0.02} />}
       </EffectComposer>
 
       <Sky sunPosition={[100, 20, 100]} />
@@ -996,7 +996,7 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
             roomFlags={roomFlags}
           />
           <Weapon isFiring={isFiring} type={currentWeaponType} />
-          {!isMultiplayer || !mobileInput ? <PointerLockControls /> : null}
+          {!mobileInput ? <PointerLockControls /> : null}
         </group>
       )}
     </>
@@ -1005,7 +1005,7 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
 
 const GameWorld: React.FC<GameWorldProps> = (props) => {
   return (
-    <div className="w-full h-full cursor-crosshair">
+    <div className="w-full h-full cursor-crosshair touch-none">
       <Canvas shadows camera={{ fov: 75, position: [0, 1.8, 10] }}>
         <Scene {...props} />
       </Canvas>

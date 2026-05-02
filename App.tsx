@@ -47,7 +47,9 @@ const App: React.FC = () => {
       const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       const isHandheld = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       const isSmall = window.innerWidth < 1024;
-      setIsMobile(isHandheld || (isSmall && isTouch));
+      const isPrimaryTouch = isTouch && !window.matchMedia("(pointer: fine)").matches;
+      
+      setIsMobile(isHandheld || (isSmall && isTouch) || isPrimaryTouch);
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -218,7 +220,7 @@ const App: React.FC = () => {
   }, [stats.ammo, gameState, stats.currentWeapon]);
 
   return (
-    <div className="w-full h-screen bg-neutral-950 text-white overflow-hidden select-none">
+    <div className="w-full h-[100dvh] bg-neutral-950 text-white overflow-hidden select-none touch-none">
       {gameState === GameState.MENU && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black p-6">
           {!showThemeSelect && !showMultiplayerLobby ? (
