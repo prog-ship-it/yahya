@@ -36,6 +36,7 @@ const App: React.FC = () => {
   const [gameMode, setGameMode] = useState<GameMode>(GameMode.COOP);
   const [roomScores, setRoomScores] = useState<Record<string, number>>({});
   const [roomFlags, setRoomFlags] = useState<any[]>([]);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
   
   // Mobile Support
   const [isMobile, setIsMobile] = useState(false);
@@ -123,6 +124,11 @@ const App: React.FC = () => {
 
       multiplayerService.onFlagsUpdated((flags) => {
         setRoomFlags(flags);
+      });
+
+      multiplayerService.onAnnouncement((msg) => {
+        setAnnouncement(msg);
+        setTimeout(() => setAnnouncement(null), 3000);
       });
     } else {
       const newMission = await generateMission(selectedTheme);
@@ -483,6 +489,7 @@ const App: React.FC = () => {
             gameMode={gameMode}
             roomScores={roomScores}
             isMobile={isMobile}
+            announcement={announcement}
           />
           {isMobile && (
             <MobileControls 

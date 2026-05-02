@@ -12,9 +12,10 @@ interface HUDProps {
   isMobile?: boolean;
   gameMode?: GameMode;
   roomScores?: Record<string, number>;
+  announcement?: string | null;
 }
 
-const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerName, isMobile, gameMode, roomScores }) => {
+const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerName, isMobile, gameMode, roomScores, announcement }) => {
   const healthColor = stats.health > 50 ? 'bg-emerald-500' : stats.health > 20 ? 'bg-amber-500' : 'bg-red-600';
   const enemiesRemaining = totalEnemies - stats.kills;
   const isExtractionReady = enemiesRemaining <= 0;
@@ -93,6 +94,18 @@ const HUD: React.FC<HUDProps> = ({ stats, mission, totalEnemies, roomId, playerN
             <div className="absolute h-[2px] w-3 bg-cyan-400 -right-2"></div>
         </div>
       </div>
+
+      {/* Global Announcements */}
+      {announcement && (
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+          <div className="bg-black/80 backdrop-blur-xl border border-cyan-500/50 px-8 py-4 rounded text-center animate-in fade-in zoom-in duration-300">
+             <div className="text-cyan-400 font-black text-2xl italic tracking-tighter uppercase mb-1 drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+               {announcement}
+             </div>
+             <div className="h-0.5 bg-cyan-500/30 w-full"></div>
+          </div>
+        </div>
+      )}
 
       {/* Extraction Marker */}
       {isExtractionReady && (
