@@ -1005,7 +1005,7 @@ const Scene: React.FC<GameWorldProps> = ({ isPaused, onHit, onKill, onFire, onVi
 
 const GameWorld: React.FC<GameWorldProps> = (props) => {
   return (
-    <div className="w-full h-full cursor-crosshair touch-none">
+    <div className="absolute inset-0 cursor-crosshair touch-none">
       <Canvas shadows camera={{ fov: 75, position: [0, 1.8, 10] }}>
         <Scene {...props} />
       </Canvas>

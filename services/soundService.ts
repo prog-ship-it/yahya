@@ -163,6 +163,13 @@ class SoundService {
     osc.start(now);
     osc.stop(now + 0.1);
   }
+
+  public async resume() {
+    const ctx = this.getCtx();
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+  }
 }
 
 export const soundService = new SoundService();

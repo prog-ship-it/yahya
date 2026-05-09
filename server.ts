@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { MultiplayerRoom, MultiplayerPlayer, Mission, Enemy, AIState, GameMode, Team, WeaponType } from './types.js';
+import { MultiplayerRoom, MultiplayerPlayer, Mission, Enemy, AIState, GameMode, Team, WeaponType } from './types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,6 +68,7 @@ async function startServer() {
       };
 
       rooms[roomId].players[socket.id] = player;
+      console.log(`Player ${uniqueName} (${socket.id}) joining room ${roomId}`);
 
       socket.emit('room-state', rooms[roomId]);
       socket.to(roomId).emit('player-joined', player);
@@ -177,7 +178,7 @@ async function startServer() {
       if (rooms[roomId]) {
         rooms[roomId].mission = mission;
         rooms[roomId].enemies = enemies;
-        socket.to(roomId).emit('mission-synced', { mission, enemies });
+        io.in(roomId).emit('mission-synced', { mission, enemies });
       }
     });
 

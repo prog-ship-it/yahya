@@ -71,15 +71,17 @@ const App: React.FC = () => {
   });
 
   const startNewGame = async (selectedTheme?: MapTheme) => {
+    soundService.resume();
     setGameState(GameState.LOADING);
     setShowThemeSelect(false);
     setShowMultiplayerLobby(false);
     
     if (isMultiplayer) {
       multiplayerService.connect();
-      multiplayerService.joinRoom(roomId || 'GLOBAL', playerName || 'Agent');
       
+      // Register listeners BEFORE joining to avoid race conditions
       multiplayerService.onRoomState(async (state) => {
+        console.log("Room state received:", state);
         setGameMode(state.gameMode || GameMode.COOP);
         setRoomScores(state.scores || {});
         setRoomFlags(state.flags || []);
@@ -89,6 +91,7 @@ const App: React.FC = () => {
           setGameState(GameState.MISSION_BRIEF);
           soundService.playMissionStart();
         } else {
+          // If we are the first one, generate and sync
           multiplayerService.setGameMode(gameMode);
           const newMission = await generateMission(selectedTheme);
           setMission(newMission);
@@ -114,6 +117,24 @@ const App: React.FC = () => {
           soundService.playMissionStart();
         }
       });
+
+      multiplayerService.onMissionSynced((data) => {
+        setMission(data.mission);
+        setGameState(GameState.MISSION_BRIEF);
+      });
+
+      multiplayerService.joinRoom(roomId || 'GLOBAL', playerName || 'Agent');
+
+      // Connection timeout fallback
+      setTimeout(() => {
+        setGameState(prev => {
+          if (prev === GameState.LOADING) {
+            setAnnouncement("CONNECTION TIMEOUT - CHECK FREQUENCY");
+            return GameState.MENU;
+          }
+          return prev;
+        });
+      }, 10000);
 
       multiplayerService.onModeUpdated(({ mode, flags }) => {
         setGameMode(mode);
@@ -418,6 +439,12 @@ const App: React.FC = () => {
           <div className="mt-8 w-64 h-1 bg-white/10 rounded-full overflow-hidden">
             <div className="h-full bg-cyan-500 animate-[loading_2s_ease-in-out_infinite]"></div>
           </div>
+          <button 
+            onClick={() => setGameState(GameState.MENU)}
+            className="mt-12 text-[10px] text-white/30 hover:text-cyan-400 uppercase tracking-[0.4em] transition-all"
+          >
+            &larr; ABORT CONNECTION
+          </button>
         </div>
       )}
 
